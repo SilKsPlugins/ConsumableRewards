@@ -1,0 +1,69 @@
+name: Create Release Draft
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Plugin Version'
+        required: true
+
+jobs:
+  build:
+    name: GitHub Release v${{ github.event.inputs.version }}
+    runs-on: ubuntu-latest
+    
+    env:
+      PLUGIN_NAME: "${{ github.event.repository.name }}"
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      
+    - name: Create release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.event.inputs.version }}
+        release_name: "${{ env.PLUGIN_NAME }} Release v${{ github.event.inputs.version }}"
+        draft: true
+        prerelease: false
+        
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v1
+      with:
+        dotnet-version: 5.0.x
+        
+    - name: Restore dependencies
+      run: dotnet restore
+      
+    - name: Update versions
+      run: "sed -i \"s#<Version>0.0.0</Version>#<Version>${{ github.event.inputs.version }}</Version>#\" \"${{ env.PLUGIN_NAME }} - OpenMod/${{ env.PLUGIN_NAME }} - OpenMod.csproj\""
+    
+    - name: Build
+      run: dotnet build --configuration Release --no-restore
+      
+    - name: Install zip
+      run: sudo apt-get install zip
+      
+    - name: Zip OpenMod release artifacts
+      run: |
+        mkdir -p ./OpenMod/Plugins ./OpenMod/Libraries
+        cd "./${{ env.PLUGIN_NAME }} - OpenMod/bin/Release/net461"
+        mv "${{ env.PLUGIN_NAME }}.dll" ../../../../OpenMod/Plugins
+        mv product.json ../../../../OpenMod
+        cd ../../../../OpenMod
+        zip -qr ./Release.zip *
+        cd ..
+      shell: bash
+        
+    - name: Upload OpenMod release asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./OpenMod/Release.zip
+        asset_name: "${{ env.PLUGIN_NAME }}-OpenMod-v${{ github.event.inputs.version }}.zip"
+        asset_content_type: application/zip

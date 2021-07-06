@@ -1,0 +1,95 @@
+# Feel free to ask any questions about the config in our Discord server: https://silksplugins.com/discord
+
+# Each consumable configuration needs either an item or pattern specified.
+# If you setup the 'Item' criteria, the consumable configuration will only apply to that item.
+# If you setup the 'Pattern' criteria, the consumable configuration will apply to any item who's name matches the given pattern.
+# The pattern is based on Regular Expressions, but a basic example is is the pattern 'Canned' will match any item which has 'Canned' in the name.
+# Read more about regular expressions here: https://docs.microsoft.com/en-us/dotnet/standard/base-types/regular-expression-language-quick-reference
+
+# QUICK NOTES:
+# If something is optional, you can simply remove the line and it will not apply!
+# Everywhere an item is taken as input, you can either give the name or the ID of the item.
+
+# Each consumable configuration has some additional optional criteria:
+# - RequiresPermission - optional - Checks if the player has a specific permission.
+# - Chance - optional - Only apply these rewards if the player is lucky.
+#                       Basically if set to 20, there is a 20% chance of these rewards applying.
+# - RewardLimit - optional - The maximum number of rewards for this consumable that will be given.
+#                            If not set, the plugin will simply give all the configured rewards.
+# - Rewards - not optional - The rewards given for this consumable configuration. Explained more next.
+
+# Each consumable configuration has a list of rewards to give to the player.
+# There are many different kinds of rewards that can be given:
+# - GiveItem - Give the player the specified item.
+# - GiveExperience - Give the player some experience.
+# - ChangeReputation - Change the player's reputation (punish those pesky meat-eaters).
+# - GiveRole - Give the player a permission role.
+# - ShowEffect - Trigger an effect at this players location.
+#                If you want this effect to be visible to other players as well,
+#                set 'EffectVisibleToOthers' to true.
+# - SendMessage - Send the player a message.
+# - RunCommand - Run a command as the console.
+
+# Here's a template will all available configuration options (just remove the #'s):
+#Consumables:
+#- Item: ~
+#  Pattern: ~
+#  RequiresPermission: ~
+#  Chance: ~
+#  RewardLimit: ~
+#  Rewards:
+#  - GiveItem: ~
+#    GiveExperience: ~
+#    ChangeReputation: ~
+#    GiveRole: ~
+#    ShowEffect: ~
+#    EffectVisibleToOthers: ~
+#    SendMessage: ~
+#    RunCommand: ~
+
+# Here's an example configuration with comments to help understand:
+Consumables:
+# Starting off with a basic consumable configuration, let's tell the player they shouldn't have eaten glue.
+- Item: Glue
+  Rewards:
+  - GiveExperience: 2 # Let's give them something at least.
+    SendMessage: "You probably shouldn't do that {User.DisplayName}."
+
+# We can make multiple messages be available, but only one show like this:
+- Item: "Glue"
+  # By limiting the reward to 1, only one message will show.
+  # The chances of the messages will decide which is shown.
+  RewardLimit: 1
+  Rewards:
+  - SendMessage: "Why did you do that?"
+    Chance: 20
+  - SendMessage: "You probably shouldn't have drank that..."
+    Chance: 25
+  - SendMessage: "Welp."
+    Chance: 33.3
+  - SendMessage: "Here we go again."
+    Chance: 50
+  - SendMessage: "Hopefully natural selection works :/"
+    Chance: 100 # Same as setting no chance.
+
+# Here we'll use the pattern to give the player an empty can whenever the eat/drink something canned:
+- Pattern: "Canned"
+  Rewards:
+  - GiveItem: Can
+
+# Just for another example, let's lower the player's reputation when they eat venison (vegetarian server):
+- Pattern: "Venison"
+  Rewards:
+  - ChangeReputation: -5
+
+# Just for fun, let's grant the player VIP if they get REALLY lucky eating a certain berry, and kill them sometimes too:
+- Item: "Raw Amber Berry"
+  RewardLimit: 1 # Only allow one reward to occur so if they get the role, they don't also die.
+  Rewards:
+  # Give the player VIP (1% chance)
+  - GiveRole: "vip"
+    SendMessage: "Congratulations! You defied the odds, got VIP, and didn't die!"
+    Chance: 1 # 1% chance
+  # Kill the player using a command 
+  - RunCommand: "slay {User.SteamId}"
+    Chance: 10 # 10% chance

@@ -1,0 +1,57 @@
+name: Imperial Plugins Push Release (OpenMod)
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    name: Imperial Plugins Upload (OpenMod)
+    runs-on: ubuntu-latest
+
+    env:
+      PRODUCT_ID: "582" # Must change per each plugin's workflow
+      
+      PLUGIN_NAME: "${{ github.event.repository.name }}"
+      VERSION: "${{ github.event.release.tag_name }}"
+      PRODUCT_BRANCH: "openmod"
+      RELEASE_DESCRIPTION: "${{ github.event.release.body }}"
+      ASSET_FILE_NAME: "${{ github.event.repository.name }}-OpenMod-v${{ github.event.release.tag_name }}.zip"
+      IP_API_KEY: "${{ secrets.IMPERIALPLUGINS_API_KEY }}"
+      IP_API_URL: "https://api.imperialplugins.com/v2/Products/Files"
+
+    steps:
+    - name: Install jo
+      run: sudo apt-get install jo
+        
+    - name: Write Description File
+      uses: DamianReeves/write-file-action@v1.0
+      with:
+        path: description.txt
+        contents: "${{ env.RELEASE_DESCRIPTION }}"
+        write-mode: overwrite
+    
+    - name: Download OpenMod Release
+      uses: dsaltares/fetch-gh-release-asset@master
+      with:
+        repo: "${{ github.event.repository.full_name }}"
+        version: "tags/${{ env.VERSION }}"
+        file: "${{ env.ASSET_FILE_NAME }}"
+        target: "${{ env.ASSET_FILE_NAME }}"
+        token: "${{ secrets.GITHUB_TOKEN }}"
+        
+    - name: Build Post File
+      run: |
+        jo markdownChangelog=@description.txt \
+          displayVersion="${{ env.VERSION }}" \
+          forceUpdate=false \
+          file[fileName]="${{ env.ASSET_FILE_NAME }}" \
+          file[base64]="%${{ env.ASSET_FILE_NAME }}" \
+          productBranchIdentifier="${{ env.PRODUCT_BRANCH }}" \
+          productId=${{ env.PRODUCT_ID }} > postdata.txt
+        sed -i "s/base64\":\"/base64\":\"data:application\/x-zip-compressed;base64,/" postdata.txt
+      shell: bash
+      
+    - name: Push Release File to Imperial Plugins
+      run: "curl -X POST \"${{ env.IP_API_URL }}\" -H  \"accept: */*\" -H  \"Content-Type: application/json\" -H \"X-API-KEY: ${{ env.IP_API_KEY }}\" -d @postdata.txt"
+      shell: bash
