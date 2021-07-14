@@ -23,11 +23,12 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
 [assembly: PluginMetadata("ConsumableRewards", DisplayName = "Consumable Rewards")]
+
 namespace ConsumableRewards
 {
     public class ConsumableRewardsPlugin : OpenModUnturnedPlugin
     {
-        private readonly IConfigurationParser<ConsumableRewardsConfiguration> _configuration;
+        private IConfigurationParser<ConsumableRewardsConfiguration> _configuration = null!;
         private readonly ILogger<ConsumableRewardsPlugin> _logger;
         private readonly IUnturnedUserDirectory _userDirectory;
         private readonly IPermissionChecker _permissionChecker;
@@ -39,10 +40,12 @@ namespace ConsumableRewards
         private readonly ICommandExecutor _commandExecutor;
         private readonly IServiceProvider _serviceProvider;
 
+        private readonly Lazy<IConfigurationParser<ConsumableRewardsConfiguration>> _configurationFactory;
+
         private readonly Random _rng;
 
         public ConsumableRewardsPlugin(
-            IConfigurationParser<ConsumableRewardsConfiguration> configuration,
+            Lazy<IConfigurationParser<ConsumableRewardsConfiguration>> configurationFactory,
             ILogger<ConsumableRewardsPlugin> logger,
             IUnturnedUserDirectory userDirectory,
             IPermissionChecker permissionChecker,
@@ -54,7 +57,7 @@ namespace ConsumableRewards
             ICommandExecutor commandExecutor,
             IServiceProvider serviceProvider) : base(serviceProvider)
         {
-            _configuration = configuration;
+            _configurationFactory = configurationFactory;
             _logger = logger;
             _userDirectory = userDirectory;
             _permissionChecker = permissionChecker;
@@ -71,6 +74,7 @@ namespace ConsumableRewards
 
         protected override UniTask OnLoadAsync()
         {
+            _configuration = _configurationFactory.Value;
             UseableConsumeable.onConsumePerformed += OnConsumePerformed;
 
             return UniTask.CompletedTask;
@@ -84,11 +88,11 @@ namespace ConsumableRewards
         }
 
         public async Task<ICollection<Consumable>> GetApplicableConsumables(UnturnedUser user,
-            UnturnedItemAsset itemAsset)
+            UnturnedItemAsset consumedAsset)
         {
             var consumables = new List<Consumable>();
 
-            foreach (var (index, consumable) in _configuration.Instance.Consumables.Select((x, y) => (y, x)))
+            foreach (var (consumable, index) in _configuration.Instance.Consumables.Select((x, y) => (x, y)))
             {
                 var itemCriteriaApplies = !string.IsNullOrEmpty(consumable.Item);
                 var patternCriteriaApplies = !string.IsNullOrEmpty(consumable.Pattern);
@@ -110,11 +114,14 @@ namespace ConsumableRewards
                 // Match based on criteria
                 if (itemCriteriaApplies)
                 {
-                    var asset = await consumable.GetItemAsset(_serviceProvider);
+                    var configuredAsset = await consumable.GetItemAsset(_serviceProvider);
 
-                    if (asset != null)
+                    if (configuredAsset != null)
                     {
-                        applies = asset.ItemAssetId.Equals(itemAsset.ItemName);
+                        applies = configuredAsset.ItemAssetId.Equals(consumedAsset.ItemAssetId);
+
+                        _logger.LogDebug(
+                            $"Item Criteria Matches: {applies} (Consumed: {consumedAsset.ItemName} ({consumedAsset.ItemAssetId}), Configured: {configuredAsset.ItemName} ({configuredAsset.ItemAssetId}))");
                     }
                     else
                     {
@@ -125,7 +132,10 @@ namespace ConsumableRewards
                 {
                     var pattern = consumable.Pattern!;
 
-                    applies = Regex.IsMatch(itemAsset.ItemName, pattern);
+                    applies = Regex.IsMatch(consumedAsset.ItemName, pattern);
+
+                    _logger.LogDebug(
+                        $"Pattern Criteria Matches: {applies} (Consumed: {consumedAsset.ItemName} ({consumedAsset.ItemAssetId}), Configured Pattern: \"{pattern}\")");
                 }
 
                 // Check if user has permission
@@ -166,6 +176,7 @@ namespace ConsumableRewards
         {
             UniTask.RunOnThreadPool(async () =>
             {
+
                 var user = _userDirectory.GetUser(instigatingPlayer);
                 var asset = new UnturnedItemAsset(consumableAsset);
 
@@ -179,7 +190,12 @@ namespace ConsumableRewards
             
             foreach (var consumable in consumables)
             {
+                _logger.LogDebug(
+                    $"Consumable configuration has been triggered (Item: {consumable.Item ?? "null"}, Pattern: {consumable.Pattern ?? "null"}).");
+
                 var rewardsGiven = 0;
+
+                _logger.LogDebug($"Enumerating over {consumable.Rewards.Length} rewards.");
 
                 foreach (var reward in consumable.Rewards)
                 {
@@ -194,11 +210,17 @@ namespace ConsumableRewards
                     {
                         var random = _rng.NextDouble() * 100;
 
-                        if (random >= consumable.Chance)
+                        var grantReward = random < reward.Chance;
+
+                        _logger.LogDebug($"Checking reward chance: {reward.Chance}% (generated {random:0.00}) | Grant Reward: {grantReward}");
+
+                        if (!grantReward)
                         {
                             continue;
                         }
                     }
+
+                    _logger.LogDebug("Granting reward.");
 
                     // Give reward
                     rewardsGiven++;
@@ -217,21 +239,29 @@ namespace ConsumableRewards
 
                     if (reward.GiveExperience != null)
                     {
+                        await UniTask.SwitchToMainThread();
+
                         user.Player.Player.skills.askAward(reward.GiveExperience.Value);
                     }
 
                     if (reward.ChangeReputation != null)
                     {
+                        await UniTask.SwitchToMainThread();
+
                         user.Player.Player.skills.askRep(reward.ChangeReputation.Value);
                     }
 
                     if (reward.GiveRole != null)
                     {
+                        await UniTask.SwitchToThreadPool();
+
                         await _permissionRoleStore.AddRoleToActorAsync(user, reward.GiveRole);
                     }
 
                     if (reward.ShowEffect != null)
                     {
+                        await UniTask.SwitchToMainThread();
+
                         if (reward.EffectVisibleToOthers)
                         {
                             EffectManager.sendEffectReliable(reward.ShowEffect.Value, EffectManager.MEDIUM,
@@ -259,6 +289,8 @@ namespace ConsumableRewards
 
                         if (commandArguments.Length > 0)
                         {
+                            await UniTask.SwitchToThreadPool();
+
                             await _commandExecutor.ExecuteAsync(consoleActor, commandArguments, string.Empty);
                         }
                     }
