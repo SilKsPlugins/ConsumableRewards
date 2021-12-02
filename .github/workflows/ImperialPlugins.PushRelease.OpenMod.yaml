@@ -7,7 +7,7 @@ on:
 jobs:
   build:
     name: Imperial Plugins Upload (OpenMod)
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
 
     env:
       PRODUCT_ID: "582" # Must change per each plugin's workflow
